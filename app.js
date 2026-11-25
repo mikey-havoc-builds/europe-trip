@@ -1,7 +1,7 @@
 /* Europe Trip Planner – single-page iPhone web app. Data: encrypted itinerary + on-device additions. */
 {
 'use strict';
-const VERSION = '1.0.0';
+const VERSION = '1.2.0';
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -274,9 +274,8 @@ const view = () => $('#view');
 function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.append(t); setTimeout(() => t.remove(), 2600); }
 function clearMaps() { for (const m of S.maps) try { m.remove(); } catch {} S.maps = []; }
 function tiles(map) {
-  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
-  L.tileLayer(`https://{s}.basemaps.cartocdn.com/rastertiles/${dark ? 'dark_all' : 'voyager'}/{z}/{x}/{y}{r}.png`, {maxZoom: 19, subdomains: 'abcd',
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/">CARTO</a>'}).addTo(map);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19,
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).addTo(map);
 }
 const pin = (type, label) => L.divIcon({className: '', iconSize: [26, 26], iconAnchor: [13, 26], html: `<div class="pin ${tcls(type)}"><b>${esc(label)}</b></div>`});
 const meIcon = () => L.divIcon({className: '', iconSize: [16, 16], iconAnchor: [8, 8], html: '<div class="me"></div>'});
@@ -664,7 +663,7 @@ function renderSettings() {
     <div class="sec"><h4>Import changes</h4><textarea id="imp" placeholder="Paste a TRIPPLAN1: code"></textarea><button class="btn" id="doimp" style="margin-top:8px">Import and merge</button></div>
     <div class="sec"><h4>Install on iPhone</h4><p style="margin:0">In Safari tap Share › Add to Home Screen. The Home Screen app keeps its own copy, so enter the passcode once more after adding it.</p></div>
     <div class="sec"><h4>This phone</h4><button class="btn danger" id="lock">Lock and remove trip from this phone</button></div>
-    <p class="src">Maps © OpenStreetMap contributors, © CARTO. Routes: OSRM / FOSSGIS. Hours: OpenStreetMap. Summaries: Wikipedia. Weather: Open-Meteo.</p></div>`;
+    <p class="src">Maps © OpenStreetMap contributors. Routes: OSRM / FOSSGIS. Hours: OpenStreetMap. Summaries: Wikipedia. Weather: Open-Meteo.</p></div>`;
   $('#auto').addEventListener('change', e => { S.prefs.auto = e.target.checked; savePrefs(); });
   $('#syncnow').addEventListener('click', () => sync(true));
   $('#share').addEventListener('click', async () => { try { if (navigator.share) await navigator.share({title: 'Trip plan changes', text: code}); else { await navigator.clipboard.writeText(code); toast('Code copied'); } } catch {} });

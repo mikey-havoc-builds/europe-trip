@@ -1,7 +1,7 @@
 /* Europe Trip Planner – single-page iPhone web app. Data: encrypted itinerary + on-device additions. */
 {
 'use strict';
-const VERSION = '1.1.0';
+const VERSION = '1.0.0';
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -272,15 +272,14 @@ const farText = d => d > 150 ? `${Math.round(d).toLocaleString()} km from you` :
 /* ---------- UI helpers ---------- */
 const view = () => $('#view');
 function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.append(t); setTimeout(() => t.remove(), 2600); }
-function clearMaps() {}
-const ll = p => `${p.lat},${p.lon}`;
-const gPlace = p => `https://maps.google.com/maps?q=${ll(p)}&z=16&hl=en&output=embed`;
-const gRoute = (pts, walk) => `https://maps.google.com/maps?saddr=${ll(pts[0])}&daddr=${pts.slice(1).map(ll).join('+to:')}${walk ? '&dirflg=w' : ''}&hl=en&output=embed`;
-function gframe(el, url, label) {
-  if (!el) return;
-  if (!navigator.onLine) { el.innerHTML = '<div class="mapoff">The map shows when you’re online</div>'; return; }
-  el.innerHTML = `<iframe src="${esc(url)}" title="${esc(label)}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>`;
+function clearMaps() { for (const m of S.maps) try { m.remove(); } catch {} S.maps = []; }
+function tiles(map) {
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  L.tileLayer(`https://{s}.basemaps.cartocdn.com/rastertiles/${dark ? 'dark_all' : 'voyager'}/{z}/{x}/{y}{r}.png`, {maxZoom: 19, subdomains: 'abcd',
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/">CARTO</a>'}).addTo(map);
 }
+const pin = (type, label) => L.divIcon({className: '', iconSize: [26, 26], iconAnchor: [13, 26], html: `<div class="pin ${tcls(type)}"><b>${esc(label)}</b></div>`});
+const meIcon = () => L.divIcon({className: '', iconSize: [16, 16], iconAnchor: [8, 8], html: '<div class="me"></div>'});
 function header(title, sub, backHash, right = '') {
   return `<header class="top"><div class="row">${backHash != null ? `<a class="ib" href="${esc(backHash || '#')}" aria-label="${backHash && backHash !== '#' ? 'Back' : 'Back to calendar'}">${backHash && backHash !== '#' ? IC.back : IC.today}</a>` : ''}
   <div style="flex:1"><h1>${esc(title)}</h1>${sub ? `<div class="sub">${sub}</div>` : ''}</div>${right}</div></header>`;
@@ -373,7 +372,7 @@ function renderDay(d, hl) {
   const nav = `<a class="ib" href="#day-${addDays(d, -1)}" aria-label="Previous day" ${d <= start ? 'style="visibility:hidden"' : ''}>${IC.back}</a><a class="ib" href="#day-${addDays(d, 1)}" aria-label="Next day" ${d >= end ? 'style="visibility:hidden"' : ''}>${IC.next}</a>`;
   view().innerHTML = header(fmtDL(d), `${esc(city)} · Day ${k + 1}<div class="wx" id="wx"></div>`, '#', nav) + `<div class="wrap">
     <div class="locbar" id="locbar">${IC.loc}<span id="locmsg">${S.pos ? 'Travel times from your location' : 'Show travel times from where you are'}</span><button class="btn sm" id="locbtn">${S.pos ? 'Refresh' : 'Use my location'}</button></div>
-    ${all.some(c => hasLL(placeOf(c.i))) ? '<div class="dmap" id="dmap"></div><a class="btn sm hidden" id="dmaplink" target="_blank" rel="noopener" style="margin:-4px 0 12px">Open the day’s route in Google Maps</a>' : ''}
+    ${all.some(c => hasLL(placeOf(c.i))) ? '<div class="dmap" id="dmap" role="img" aria-label="Map of the day"></div>' : ''}
     ${night ? `<div class="night" style="margin:0 2px 10px">${night.kind === 'stay' ? 'Tonight: ' + esc(titleOf(night.i)) : 'Overnight on ' + esc(night.i.number || TYPES[night.i.type])}</div>` : (d === end ? '' : '<div class="note" style="margin:0 0 10px">No accommodation booked for tonight.</div>')}
     ${cards.length ? `<h4 style="margin:4px 2px 8px;color:var(--mute);font-size:13px">Bookings & travel</h4><div class="tl">${cards.map((c, ix) => actCard(c, ix, hl)).join('')}</div>` : ''}
     ${plan ? `<h4 style="margin:16px 2px 8px;color:var(--mute);font-size:13px">Day plan</h4><div class="planbox" id="a-${esc(plan.i.id)}"><b>Plan</b>${esc(plan.i.text)} <a href="#edit-${encodeURIComponent(plan.i.id)}" class="copy">Edit</a></div>
@@ -425,20 +424,15 @@ function actCard(c, ix, hl) {
     ${i.notes && !i.stop ? `<div class="note">${esc(i.notes)}</div>` : ''}</div></a>`;
 }
 function dayMap(all) {
-  const el = $('#dmap'); if (!el) return;
+  const el = $('#dmap'); if (!el || !window.L) return;
+  const map = L.map(el, {zoomControl: false, attributionControl: true, dragging: true, scrollWheelZoom: false}); tiles(map); S.maps.push(map);
   const pts = [];
-  for (const c of all) { const t = c.role === 'arr' ? c.i.to : placeOf(c.i); if (hasLL(t) && !pts.some(q => q.lat === t.lat && q.lon === t.lon)) pts.push(t); }
-  if (!pts.length) { el.remove(); return; }
-  // keep the map local: drop far-away points (e.g. departure airports on travel days)
-  const ref = pts[pts.length - 1], use = pts.filter(p => hav(p, ref) < 80).slice(0, 10);
-  const spread = use.length > 1 ? Math.max(...use.map(p => hav(p, use[0]))) : 0;
-  gframe(el, use.length > 1 ? gRoute(use, spread < 10) : gPlace(use[0]), 'Map of the day');
-  const link = $('#dmaplink');
-  if (link && use.length > 1) {
-    const mid = use.slice(1, -1).map(ll).join('|');
-    link.href = `https://www.google.com/maps/dir/?api=1&origin=${ll(use[0])}&destination=${ll(use[use.length - 1])}${mid ? '&waypoints=' + encodeURIComponent(mid) : ''}&travelmode=${spread < 10 ? 'walking' : 'transit'}`;
-    link.classList.remove('hidden');
-  }
+  all.forEach((c, ix) => { const t = c.role === 'arr' ? c.i.to : placeOf(c.i); if (hasLL(t)) { pts.push([t.lat, t.lon]); L.marker([t.lat, t.lon], {icon: pin(c.i.type, c.role === 'stop' ? +c.i.id.split('-').pop() + 1 : '•')}).addTo(map).on('click', () => location.hash = '#act-' + encodeURIComponent(c.i.id)); } });
+  // keep the map local: drop far-away points (e.g. departure airports on travel days) if the rest cluster
+  const near = pts.filter(p => hav({lat: p[0], lon: p[1]}, {lat: pts[pts.length - 1][0], lon: pts[pts.length - 1][1]}) < 80);
+  const use = near.length ? near : pts;
+  if (use.length === 1) map.setView(use[0], 14); else map.fitBounds(use, {padding: [30, 30], maxZoom: 15});
+  S.dayMap = map;
 }
 async function dayEnrich(d, all, city) {
   weather(city, d).then(w => { const el = $('#wx'); if (el && w) el.textContent = w; });
@@ -461,6 +455,7 @@ async function dayTimes(all) {
   const fill = (ix, html) => { const el = document.querySelector(`[data-tt="${ix}"]`); if (el) el.innerHTML = html; };
   if (!pos) { targets.forEach(t => fill(t.ix, '')); return; }
   $('#locmsg') && ($('#locmsg').textContent = 'Travel times from your location'); $('#locbtn') && ($('#locbtn').textContent = 'Refresh');
+  if (S.dayMap && !S.dayMap._me) { S.dayMap._me = L.marker([pos.lat, pos.lon], {icon: meIcon()}).addTo(S.dayMap); }
   const near = [];
   for (const t of targets) { const d = hav(pos, t.p); if (farText(d)) fill(t.ix, ttHTML(null, farText(d))); else { fill(t.ix, ttHTML(estimate(d))); near.push({...t, d}); } }
   if (!near.length || !navigator.onLine) return;
@@ -515,7 +510,7 @@ function renderAct(id) {
     ${p ? `<div class="sec"><h4>${J ? 'Getting to ' + esc(shortName(p)) : 'Location'}</h4>
       <div style="font-weight:650">${esc(p.name || '')}</div>${p.addr ? `<div class="addr">${esc(p.addr)}</div>` : ''}
       ${hasLL(p) ? `<div class="modes" id="modes"></div><div class="src" id="modesrc">Turn on location to see travel times from where you are.</div>
-      <div class="dmapl" id="amap" style="margin-top:10px"></div>` : '<p class="src">No map position yet – add a full address with Edit.</p>'}
+      <div class="dmapl" id="amap" style="margin-top:10px" role="img" aria-label="Map"></div>` : '<p class="src">No map position yet – add a full address with Edit.</p>'}
       <div class="links"><a class="btn pri" href="${esc(gmaps(p, 'transit'))}" target="_blank" rel="noopener">Google Maps</a>
       <a class="btn" href="${esc(gmaps(p, 'walking'))}" target="_blank" rel="noopener">${IC.walk}Walk</a>
       <a class="btn" href="${esc(amaps(p))}" target="_blank" rel="noopener">Apple Maps</a>
@@ -553,7 +548,13 @@ async function actEnrich(i, p) {
     } else $('#hrs').innerHTML = `<div class="src">${navigator.onLine ? 'No published opening hours found' : 'Opening hours load when you’re online'}${safeUrl(i.website) ? ' – check the website.' : '.'}</div>`;
   }
 }
-function actMap(i, p) { gframe($('#amap'), gPlace(p), 'Map of ' + (p.name || 'the location')); }
+function actMap(i, p) {
+  const el = $('#amap'); if (!el || !window.L) return;
+  const map = L.map(el, {zoomControl: true, scrollWheelZoom: false}); tiles(map); S.maps.push(map); S.actMap = map;
+  L.marker([p.lat, p.lon], {icon: pin(i.type, '●')}).addTo(map);
+  if (JOURNEY.has(i.type) && hasLL(i.to) && hav(p, i.to) < 60) L.marker([i.to.lat, i.to.lon], {icon: pin(i.type, '◆')}).addTo(map);
+  map.setView([p.lat, p.lon], 15);
+}
 async function actRoute(i, p) {
   const m = $('#modes'), src = $('#modesrc'); if (!m) return;
   const pos = S.pos;
@@ -562,13 +563,15 @@ async function actRoute(i, p) {
   const box = t => `<div class="mode">${IC.walk}<div class="v">${fmtMin(t.walk)}</div><div class="k">Walk</div></div><div class="mode">${IC.transit}<div class="v">${t.transit == null ? 'Walk' : '≈ ' + fmtMin(t.transit)}</div><div class="k">Public transport</div></div><div class="mode">${IC.car}<div class="v">${fmtMin(t.taxi)}</div><div class="k">Taxi / rideshare</div></div>`;
   if (farText(d)) { m.innerHTML = ''; src.textContent = `You’re ${farText(d)} – travel times appear when you’re nearby.`; return; }
   m.innerHTML = box(estimate(d)); src.textContent = `${d.toFixed(1)} km away · rough estimate, updating…`;
-  gframe($('#amap'), gRoute([pos, p], d < 3), 'Directions to ' + (p.name || 'the location'));
+  const map = S.actMap;
+  if (map) { L.marker([pos.lat, pos.lon], {icon: meIcon()}).addTo(map); map.fitBounds([[pos.lat, pos.lon], [p.lat, p.lon]], {padding: [30, 30]}); }
   if (!navigator.onLine) { src.textContent = `${d.toFixed(1)} km away · offline estimate`; return; }
   try {
     const [f, c] = await Promise.all([osrm('foot', [pos, p]), osrm('car', [pos, p])]);
     const fr = f.routes[0], cr = c.routes[0];
     m.innerHTML = box(estimate(d, fr.duration, cr.duration));
-    src.innerHTML = `Walking ${(fr.distance / 1000).toFixed(1)} km · public transport is an estimate – tap Google Maps for live times.`;
+    src.innerHTML = `Walking ${(fr.distance / 1000).toFixed(1)} km · public transport is an estimate – tap Google Maps for live times. Routes © OpenStreetMap.`;
+    if (map && $('#amap')) { const g = (d < 5 ? fr : cr).geometry; const line = L.geoJSON(g, {style: {color: '#0f4c5c', weight: 5, opacity: .8}}).addTo(map); map.fitBounds(line.getBounds(), {padding: [30, 30]}); }
   } catch { src.textContent = `${d.toFixed(1)} km away · estimate (routing service unavailable)`; }
 }
 
@@ -661,7 +664,7 @@ function renderSettings() {
     <div class="sec"><h4>Import changes</h4><textarea id="imp" placeholder="Paste a TRIPPLAN1: code"></textarea><button class="btn" id="doimp" style="margin-top:8px">Import and merge</button></div>
     <div class="sec"><h4>Install on iPhone</h4><p style="margin:0">In Safari tap Share › Add to Home Screen. The Home Screen app keeps its own copy, so enter the passcode once more after adding it.</p></div>
     <div class="sec"><h4>This phone</h4><button class="btn danger" id="lock">Lock and remove trip from this phone</button></div>
-    <p class="src">Maps: Google Maps. Travel-time routing: OSRM / FOSSGIS (OpenStreetMap data). Hours: OpenStreetMap. Summaries: Wikipedia. Weather: Open-Meteo.</p></div>`;
+    <p class="src">Maps © OpenStreetMap contributors, © CARTO. Routes: OSRM / FOSSGIS. Hours: OpenStreetMap. Summaries: Wikipedia. Weather: Open-Meteo.</p></div>`;
   $('#auto').addEventListener('change', e => { S.prefs.auto = e.target.checked; savePrefs(); });
   $('#syncnow').addEventListener('click', () => sync(true));
   $('#share').addEventListener('click', async () => { try { if (navigator.share) await navigator.share({title: 'Trip plan changes', text: code}); else { await navigator.clipboard.writeText(code); toast('Code copied'); } } catch {} });

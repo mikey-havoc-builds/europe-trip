@@ -1,5 +1,5 @@
 /* Offline support: app shell cached, itinerary network-first, map tiles and photos cached as viewed. */
-const V = 'trip-v1.2.0', RUNTIME = 'trip-runtime';
+const V = 'trip-v1.3.0', RUNTIME = 'trip-runtime';
 const SHELL = ['./', 'index.html', 'app.js', 'manifest.webmanifest', 'data.enc.json', 'vendor/leaflet.js', 'vendor/leaflet.css', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== V && k !== RUNTIME).map(k => caches.delete(k)))).then(() => self.clients.claim())); });

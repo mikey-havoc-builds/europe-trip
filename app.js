@@ -1,7 +1,7 @@
 /* Europe Trip Planner – single-page iPhone web app. Data: encrypted itinerary + on-device additions. */
 {
 'use strict';
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -332,13 +332,13 @@ function renderHome() {
     const night = d === end ? null : nightOf(d);
     const nightHTML = d === end ? '' : night ? (night.kind === 'stay' ? `<span class="night">Night: ${esc(titleOf(night.i))}</span>` : `<span class="night">Overnight on ${esc(night.i.number || TYPES[night.i.type])}</span>`) : `<span class="night gap">No accommodation booked</span>`;
     const chips = entriesFor(d).map(e => { const c = chipInfo(e); const type = e.role === 'plan' ? 'sight' : e.i.type;
-      return `<a class="chip ${tcls(type)}" href="#day-${d}~${encodeURIComponent(e.i.id)}"><div class="l1">${IC[type] || IC.other}<span>${esc(c.l1)}</span></div>${c.l2 ? `<div class="l2">${c.raw ? c.l2 : esc(c.l2)}</div>` : ''}</a>`; }).join('');
+      return `<a class="chip ${tcls(type)}" href="#day-${d}~${encodeURIComponent(e.i.id)}"><div class="l1">${IC[type] || IC.other}<span>${esc(c.l1)}</span>${e.role === 'plan' ? (e.i.stops || []).map((_, k) => docBadge(e.i.id + '-' + k)).join('') : docBadge(e.i.id)}</div>${c.l2 ? `<div class="l2">${c.raw ? c.l2 : esc(c.l2)}</div>` : ''}</a>`; }).join('');
     html += `<div class="dayrow${d === t ? ' today' : ''}" id="d-${d}" data-day="${d}" role="link" tabindex="0" aria-label="${esc(fmtDL(d))}"><div class="dnum"><div class="w">${WD[p.wd]}</div><div class="n">${p.d}</div><div class="t">Day ${k + 1}</div></div>
       <div><div class="dhead"><span class="city">${esc(city || '—')}</span>${nightHTML}</div>${chips ? `<div class="chips">${chips}</div>` : '<div class="empty">Free day – tap to add plans</div>'}</div></div>`;
   }
   const legend = Object.keys(TYPES).filter(k => k !== 'other').map(k => `<span><i style="background:var(--${k})"></i>${TYPES[k]}</span>`).join('');
   view().innerHTML = header(S.base.trip.title, `${fmtD(start)} – ${fmtD(end)} ${dp(end).y} · ${status}<br><span class="sync" id="syncline">${syncText()}</span>`, null,
-    `<a class="ib" href="#settings" aria-label="Settings and sharing">${IC.gear}</a>`) +
+    `<a class="ib" href="#docs" aria-label="Tickets and documents">${IC.clip}</a><a class="ib" href="#settings" aria-label="Settings and sharing">${IC.gear}</a>`) +
     `<nav class="legs" aria-label="Cities">${legs.filter(l => l.city).map(l => `<button class="leg" data-go="${l.from}"><b>${esc(l.city)}</b><span>${dp(l.from).d} ${MO[dp(l.from).m - 1]}${l.to !== l.from ? '–' + dp(l.to).d + ' ' + MO[dp(l.to).m - 1] : ''}</span></button>`).join('')}</nav>
     <div class="legend">${legend}</div>${html}
     <a class="fab" href="#add">${IC.plus}Add</a>`;
@@ -417,7 +417,7 @@ function actCard(c, ix, hl) {
     <div class="when">${when ? esc(when) : '<span style="color:var(--mute)">·</span>'}<small>${esc(lbl)}</small></div>
     <div><h3>${IC[type] || IC.other}<span>${esc(role === 'arr' ? 'Arrive ' + shortName(i.to) : titleOf(i))}</span></h3>
     ${sum ? `<p class="sum">${sum}</p>` : ''}<p class="sum" data-wiki="${esc(i.id)}"></p>
-    ${kt || target ? `<div class="kt">${kt}<span data-hrs="${esc(i.id)}"></span></div>` : ''}
+    ${kt || target ? `<div class="kt">${kt}<span data-hrs="${esc(i.id)}"></span></div>` : ''}${docCount(i.id) ? `<div class="kt">${docBadge(i.id)}<span style="color:var(--mute)">ticket${docCount(i.id) === 1 ? '' : 's'} & docs</span></div>` : ''}
     ${target && target.addr ? `<div class="addr">${esc(target.addr)}</div>` : ''}
     ${hasLL(target) ? `<div class="tt" data-tt="${ix}"></div>` : ''}
     ${i.notes && !i.stop ? `<div class="note">${esc(i.notes)}</div>` : ''}</div></a>`;
@@ -515,6 +515,7 @@ function renderAct(id) {
       <a class="btn" href="${esc(amaps(p))}" target="_blank" rel="noopener">Apple Maps</a>
       ${hasLL(p) ? `<a class="btn" href="${esc(uber(p))}" target="_blank" rel="noopener">${IC.car}Uber</a>` : ''}
       <button class="btn" id="locbtn">${IC.loc}${S.pos ? 'Refresh' : 'My location'}</button></div></div>` : ''}
+    ${docsSection(i.id)}
     ${extra.length ? `<div class="sec"><h4>Booking details</h4>${kv(extra)}</div>` : ''}
     ${i.website || i.phone ? `<div class="sec"><h4>Contact</h4><div class="links" style="margin-top:0">${safeUrl(i.website) ? `<a class="btn" href="${esc(i.website)}" target="_blank" rel="noopener">Website</a>` : ''}${i.phone ? `<a class="btn" href="tel:${esc(i.phone.replace(/[^\d+]/g, ''))}">Call ${esc(i.phone)}</a>` : ''}</div></div>` : ''}
     ${i.notes ? `<div class="sec"><h4>Notes</h4><div>${esc(i.notes)}</div></div>` : ''}
@@ -524,6 +525,7 @@ function renderAct(id) {
   $$('[data-copy]').forEach(b => b.addEventListener('click', async ev => { ev.preventDefault(); try { await navigator.clipboard.writeText(b.dataset.copy); toast('Copied'); } catch { toast(b.dataset.copy); } }));
   const del = $('#del'); if (del) del.addEventListener('click', () => { if (!confirm('Delete this from the plans on this phone?')) return; delItem(i.id); location.hash = '#day-' + i.date; });
   const lb = $('#locbtn'); if (lb) lb.addEventListener('click', async () => { lb.lastChild.textContent = 'Locating…'; await locate(true); if (!S.pos) toast('Location unavailable – allow it in Settings › Privacy › Location'); actRoute(i, p); lb.lastChild.textContent = 'Refresh'; });
+  bindDocs(i.id, () => refreshDocs(i.id));
   actEnrich(i, p);
   if (hasLL(p)) { actMap(i, p); (S.prefs.locOK ? locate(false) : Promise.resolve()).then(() => actRoute(i, p)); }
 }
@@ -576,7 +578,7 @@ async function actRoute(i, p) {
 
 /* ---------- add / edit ---------- */
 function delItem(id) {
-  if ((S.user.added || []).some(a => a.id === id)) S.user.added = S.user.added.filter(a => a.id !== id);
+  if ((S.user.added || []).some(a => a.id === id)) { S.user.added = S.user.added.filter(a => a.id !== id); filesOf(id).forEach(f => removeFile(id, f.id)); delete S.user.links[id]; }
   else { S.user.hidden = [...new Set([...(S.user.hidden || []), id])]; }
   delete S.user.edits[id]; S.user.ts = Date.now(); saveUser(); rebuild(); toast('Deleted');
 }
@@ -647,20 +649,182 @@ function renderPlanForm(it) {
     S.user.edits[it.id] = {...(S.user.edits[it.id] || {}), city: fd.city, text: fd.text}; S.user.ts = Date.now(); saveUser(); rebuild(); toast('Saved'); location.hash = '#day-' + it.date; });
 }
 
+/* ---------- tickets & documents ---------- */
+IC.clip = P('M16.5 6v11.5a4 4 0 0 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 0 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6z');
+IC.link = P('M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7a5 5 0 0 0 0 10h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4a5 5 0 0 0 0-10z');
+IC.doc = P('M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zm-1 7V3.5L18.5 9z');
+IC.img = P('M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 13.5l2.5 3 3.5-4.5 4.5 6H5z');
+const DB = (() => {
+  let dbp = null;
+  const open = () => dbp || (dbp = new Promise((res, rej) => {
+    const r = indexedDB.open('trip-docs', 1);
+    r.onupgradeneeded = () => { const s = r.result.createObjectStore('files', {keyPath: 'id'}); s.createIndex('item', 'itemId'); };
+    r.onsuccess = () => res(r.result); r.onerror = () => { dbp = null; rej(r.error); };
+  }));
+  const req = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+  const st = async mode => (await open()).transaction('files', mode).objectStore('files');
+  return {put: async f => req((await st('readwrite')).put(f)), get: async id => req((await st('readonly')).get(id)),
+    del: async id => req((await st('readwrite')).delete(id)), all: async () => req((await st('readonly')).getAll())};
+})();
+// light index of stored files so lists render without reading the files themselves
+S.fidx = LS.get('fidx', {});
+const saveFidx = () => LS.set('fidx', S.fidx);
+S.user.links = S.user.links || {};
+const linksOf = id => (S.user.links[id] || []);
+const filesOf = id => (S.fidx[id] || []);
+const docCount = id => linksOf(id).length + filesOf(id).length;
+const fmtSize = n => n > 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1e3)) + ' KB';
+const docIcon = t => /^image\//.test(t) ? IC.img : IC.doc;
+async function shrinkImage(file) {
+  if (!/^image\/(jpeg|png|heic|heif|webp)/.test(file.type) || file.size < 1.5e6) return {buf: await file.arrayBuffer(), type: file.type || 'application/octet-stream'};
+  try {
+    const bmp = await createImageBitmap(file); const k = Math.min(1, 2200 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.88));
+    return {buf: await blob.arrayBuffer(), type: 'image/jpeg'};
+  } catch { return {buf: await file.arrayBuffer(), type: file.type}; }
+}
+async function addFiles(itemId, files) {
+  let n = 0;
+  for (const f of files) {
+    if (f.size > 40e6) { toast(`${f.name} is over 40 MB – too big to store`); continue; }
+    const {buf, type} = await shrinkImage(f);
+    let name = f.name || 'Document'; if (type === 'image/jpeg' && !/\.jpe?g$/i.test(name)) name = name.replace(/\.\w+$/, '') + '.jpg';
+    const rec = {id: 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), itemId, name, type, size: buf.byteLength, added: Date.now(), data: buf};
+    try { await DB.put(rec); } catch { toast('Couldn’t save – the phone may be low on storage'); continue; }
+    (S.fidx[itemId] = S.fidx[itemId] || []).push({id: rec.id, name, type, size: rec.size});
+    n++;
+  }
+  saveFidx();
+  if (n && navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  return n;
+}
+async function removeFile(itemId, fid) {
+  try { await DB.del(fid); } catch {}
+  S.fidx[itemId] = filesOf(itemId).filter(f => f.id !== fid); if (!S.fidx[itemId].length) delete S.fidx[itemId]; saveFidx();
+}
+function addLink(itemId, title, url) {
+  (S.user.links[itemId] = S.user.links[itemId] || []).push({id: 'l' + Date.now().toString(36), title, url});
+  S.user.ts = Date.now(); saveUser();
+}
+function removeLink(itemId, lid) {
+  S.user.links[itemId] = linksOf(itemId).filter(l => l.id !== lid); if (!S.user.links[itemId].length) delete S.user.links[itemId];
+  S.user.ts = Date.now(); saveUser();
+}
+let viewerURL = null;
+async function openFile(fid) {
+  const rec = await DB.get(fid).catch(() => null);
+  if (!rec) { toast('That file isn’t on this phone'); return; }
+  const blob = new Blob([rec.data], {type: rec.type});
+  if (viewerURL) URL.revokeObjectURL(viewerURL); viewerURL = URL.createObjectURL(blob);
+  const isImg = /^image\//.test(rec.type), isPdf = rec.type === 'application/pdf';
+  const v = document.createElement('div'); v.className = 'viewer'; v.setAttribute('role', 'dialog'); v.setAttribute('aria-label', rec.name);
+  v.innerHTML = `<div class="vbar"><button class="ib" id="vclose" aria-label="Close">${IC.back}</button><div class="vname">${esc(rec.name)}</div>
+    <button class="ib" id="vshare">Share</button></div>
+    <div class="vbody">${isImg ? `<img src="${viewerURL}" alt="${esc(rec.name)}">` : isPdf ? `<iframe src="${viewerURL}" title="${esc(rec.name)}"></iframe>` :
+      `<div class="vmsg">${IC.doc}<p>This file type can’t be previewed here.</p><p>Tap Share to open it in another app (for example Wallet, Files or Mail).</p></div>`}</div>
+    ${isPdf ? `<div class="vfoot"><a class="btn" href="${viewerURL}" target="_blank" rel="noopener">Open full screen</a></div>` : ''}`;
+  document.body.append(v); document.body.style.overflow = 'hidden';
+  const close = () => { v.remove(); document.body.style.overflow = ''; document.removeEventListener('keydown', esck); };
+  const esck = e => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', esck);
+  $('#vclose', v).addEventListener('click', close);
+  $('#vshare', v).addEventListener('click', async () => {
+    const file = new File([blob], rec.name, {type: rec.type});
+    try {
+      if (navigator.canShare && navigator.canShare({files: [file]})) await navigator.share({files: [file], title: rec.name});
+      else { const a = document.createElement('a'); a.href = viewerURL; a.download = rec.name; document.body.append(a); a.click(); a.remove(); }
+    } catch {}
+  });
+  $('#vclose', v).focus();
+}
+function docsSection(id) {
+  const ls = linksOf(id), fs = filesOf(id);
+  const rows = ls.map(l => `<li class="doc"><a class="dl" href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener">${IC.link}<span><b>${esc(l.title || l.url)}</b><small>${esc(l.url.replace(/^https?:\/\//, '').slice(0, 60))}</small></span></a>
+      <button class="dx" data-dl="${esc(l.id)}" aria-label="Remove link ${esc(l.title || '')}">×</button></li>`)
+    .concat(fs.map(f => `<li class="doc"><button class="dl" data-open="${esc(f.id)}">${docIcon(f.type)}<span><b>${esc(f.name)}</b><small>${esc(f.type === 'application/pdf' ? 'PDF' : (f.type.split('/')[1] || 'file').toUpperCase())} · ${fmtSize(f.size)} · saved on this phone</small></span></button>
+      <button class="dx" data-df="${esc(f.id)}" aria-label="Remove ${esc(f.name)}">×</button></li>`)).join('');
+  return `<div class="sec" id="docs"><h4>Tickets & documents</h4>
+    ${rows ? `<ul class="docs">${rows}</ul>` : '<p class="src" style="margin:0 0 8px">Add e-tickets, boarding passes, booking confirmations, screenshots or links.</p>'}
+    <div class="links"><label class="btn pri" for="docfile">${IC.clip}Add file or photo</label><input id="docfile" type="file" multiple accept="application/pdf,image/*,.pkpass,.doc,.docx,.txt,.html,.eml" class="vh">
+    <button class="btn" id="doclink">${IC.link}Add link</button></div>
+    <form id="linkform" class="hidden" style="margin-top:10px"><div class="f"><label for="lk-u">Link</label><input id="lk-u" type="text" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://… or paste a link" required></div>
+      <div class="f"><label for="lk-t">Name (optional)</label><input id="lk-t" placeholder="e.g. Booking confirmation"></div>
+      <div class="links" style="margin-top:0"><button class="btn pri" type="submit">Save link</button><button class="btn" type="button" id="lkcancel">Cancel</button></div></form></div>`;
+}
+function bindDocs(id, rerender) {
+  const box = $('#docs'); if (!box) return;
+  $('#docfile').addEventListener('change', async e => {
+    const files = [...e.target.files]; if (!files.length) return;
+    toast('Saving…'); const n = await addFiles(id, files); if (n) toast(n === 1 ? 'Saved to this phone' : `${n} files saved`); rerender();
+  });
+  $('#doclink').addEventListener('click', () => { $('#linkform').classList.remove('hidden'); $('#lk-u').focus(); });
+  $('#lkcancel').addEventListener('click', () => $('#linkform').classList.add('hidden'));
+  $('#linkform').addEventListener('submit', e => {
+    e.preventDefault(); let u = $('#lk-u').value.trim(); if (u && !/^https?:\/\//i.test(u)) u = 'https://' + u;
+    if (!safeUrl(u)) { toast('Enter a web link starting with https://'); return; }
+    addLink(id, $('#lk-t').value.trim(), u); toast('Link saved'); rerender();
+  });
+  $$('[data-open]', box).forEach(b => b.addEventListener('click', () => openFile(b.dataset.open)));
+  $$('[data-df]', box).forEach(b => b.addEventListener('click', async () => { if (!confirm('Remove this file from this phone?')) return; await removeFile(id, b.dataset.df); rerender(); }));
+  $$('[data-dl]', box).forEach(b => b.addEventListener('click', () => { if (!confirm('Remove this link?')) return; removeLink(id, b.dataset.dl); rerender(); }));
+}
+function refreshDocs(id) { const box = $('#docs'); if (!box) return; box.outerHTML = docsSection(id); bindDocs(id, () => refreshDocs(id)); }
+const docBadge = id => { const n = docCount(id); return n ? `<span class="badge">${IC.clip}${n}</span>` : ''; };
+function renderDocs() {
+  clearMaps();
+  const ids = new Set([...Object.keys(S.user.links || {}), ...Object.keys(S.fidx)].filter(docCount));
+  const groups = [...ids].map(id => ({id, i: findAny(id)})).filter(g => g.i).sort((a, b) => (a.i.date + (a.i.time || '')) < (b.i.date + (b.i.time || '')) ? -1 : 1);
+  const body = groups.map(g => `<div class="sec ${tcls(g.i.type)}"><h4 style="color:var(--ink);font-size:15px"><a href="#act-${encodeURIComponent(g.id)}" style="text-decoration:none">${esc(fmtD(g.i.date))} · ${esc(titleOf(g.i))}</a></h4>
+    <ul class="docs">${linksOf(g.id).map(l => `<li class="doc"><a class="dl" href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener">${IC.link}<span><b>${esc(l.title || l.url)}</b></span></a></li>`).join('')}
+    ${filesOf(g.id).map(f => `<li class="doc"><button class="dl" data-open="${esc(f.id)}">${docIcon(f.type)}<span><b>${esc(f.name)}</b><small>${fmtSize(f.size)}</small></span></button></li>`).join('')}</ul></div>`).join('');
+  view().innerHTML = header('Tickets & documents', 'Everything you’ve attached, in trip order', '#') + `<div class="wrap">${body || `<div class="sec"><p style="margin:0">Nothing attached yet. Open any flight, stay or activity and use <b>Add file or photo</b> or <b>Add link</b> in its Tickets & documents section.</p></div>`}</div>`;
+  window.scrollTo(0, 0);
+  $$('[data-open]').forEach(b => b.addEventListener('click', () => openFile(b.dataset.open)));
+}
+// full backup (changes + documents) as a file another phone can import
+const bufToB64 = buf => { const b = new Uint8Array(buf); let s = ''; for (let k = 0; k < b.length; k += 0x8000) s += String.fromCharCode.apply(null, b.subarray(k, k + 0x8000)); return btoa(s); };
+const b64ToBuf = s => Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer;
+async function backupFile() {
+  const files = (await DB.all().catch(() => [])).map(f => ({...f, data: bufToB64(f.data)}));
+  const json = JSON.stringify({kind: 'trip-backup', v: 1, user: S.user, files});
+  return new File([json], `trip-backup-${today()}.json`, {type: 'application/json'});
+}
+function mergeUser(o) {
+  const ids = new Set((S.user.added || []).map(a => a.id));
+  S.user.added = (S.user.added || []).map(a => (o.added || []).find(b => b.id === a.id) || a).concat((o.added || []).filter(b => !ids.has(b.id)));
+  S.user.edits = {...(S.user.edits || {}), ...(o.edits || {})}; S.user.hidden = [...new Set([...(S.user.hidden || []), ...(o.hidden || [])])];
+  for (const [k, arr] of Object.entries(o.links || {})) { const have = new Set(linksOf(k).map(l => l.id)); S.user.links[k] = linksOf(k).concat(arr.filter(l => !have.has(l.id) && safeUrl(l.url))); }
+  S.user.ts = Date.now(); saveUser(); rebuild();
+}
+async function importBackup(file) {
+  const o = JSON.parse(await file.text()); if (o.kind !== 'trip-backup') throw new Error('not a backup');
+  mergeUser(o.user || {}); let n = 0;
+  for (const f of o.files || []) {
+    if (filesOf(f.itemId).some(x => x.id === f.id)) continue;
+    await DB.put({...f, data: b64ToBuf(f.data)}); (S.fidx[f.itemId] = S.fidx[f.itemId] || []).push({id: f.id, name: f.name, type: f.type, size: f.size}); n++;
+  }
+  saveFidx(); return n;
+}
+
 /* ---------- settings / sharing ---------- */
 const b64e = s => btoa(unescape(encodeURIComponent(s))), b64d = s => decodeURIComponent(escape(atob(s)));
 function renderSettings() {
   clearMaps();
-  const code = 'TRIPPLAN1:' + b64e(JSON.stringify({added: S.user.added || [], edits: S.user.edits || {}, hidden: S.user.hidden || [], ts: S.user.ts || 0}));
+  const code = 'TRIPPLAN1:' + b64e(JSON.stringify({added: S.user.added || [], edits: S.user.edits || {}, hidden: S.user.hidden || [], links: S.user.links || {}, ts: S.user.ts || 0}));
   const nAdd = (S.user.added || []).length + Object.keys(S.user.edits || {}).length + (S.user.hidden || []).length;
   view().innerHTML = header('Settings & sharing', 'Version ' + VERSION, '#') + `<div class="wrap">
     <div class="sec"><h4>Live information</h4><p style="margin:0 0 8px">Opening hours, place summaries and weather are saved on this phone so they work offline. Directions refresh whenever you open an activity.</p>
       <p class="src" id="sl">${esc(syncText())}</p>
       <label style="display:flex;gap:10px;align-items:center;margin:8px 0"><input type="checkbox" id="auto" style="width:22px;min-height:22px" ${S.prefs.auto ? 'checked' : ''}> Refresh automatically every 6 hours when online</label>
       <button class="btn pri" id="syncnow">Refresh now</button><p class="src">Tip: tap Refresh now on hotel wifi to save mobile data.</p></div>
-    <div class="sec"><h4>Share your changes</h4><p style="margin:0 0 8px">Additions and edits are saved on this phone (${nAdd} change${nAdd === 1 ? '' : 's'}). To put them on another phone, share this code and paste it there under Import.</p>
+    <div class="sec"><h4>Share your changes</h4><p style="margin:0 0 8px">Additions and edits are saved on this phone (${nAdd} change${nAdd === 1 ? '' : 's'}). To put them on another phone, share this code and paste it there under Import. The code includes links but not stored files – use the backup file below for those.</p>
       <div class="links" style="margin-top:0"><button class="btn pri" id="share">Share code</button><button class="btn" id="copycode">Copy code</button></div></div>
     <div class="sec"><h4>Import changes</h4><textarea id="imp" placeholder="Paste a TRIPPLAN1: code"></textarea><button class="btn" id="doimp" style="margin-top:8px">Import and merge</button></div>
+    <div class="sec"><h4>Backup file (includes documents)</h4><p style="margin:0 0 8px">Your changes plus every attached ticket and document, in one file. AirDrop or message it to the other phone, then use Import backup file there. Keep a copy in Files or iCloud Drive in case a phone is lost.</p>
+      <div class="links" style="margin-top:0"><button class="btn pri" id="bkshare">Share backup file</button><label class="btn" for="bkfile">Import backup file</label><input id="bkfile" type="file" accept=".json,application/json" class="vh"></div>
+      <p class="src" id="bkinfo"></p></div>
     <div class="sec"><h4>Install on iPhone</h4><p style="margin:0">In Safari tap Share › Add to Home Screen. The Home Screen app keeps its own copy, so enter the passcode once more after adding it.</p></div>
     <div class="sec"><h4>This phone</h4><button class="btn danger" id="lock">Lock and remove trip from this phone</button></div>
     <p class="src">Maps © OpenStreetMap contributors. Routes: OSRM / FOSSGIS. Hours: OpenStreetMap. Summaries: Wikipedia. Weather: Open-Meteo.</p></div>`;
@@ -671,14 +835,20 @@ function renderSettings() {
   $('#doimp').addEventListener('click', () => {
     try {
       const raw = $('#imp').value.trim().replace(/^.*?TRIPPLAN1:/s, '').split(/\s/)[0];
-      const o = JSON.parse(b64d(raw)); const ids = new Set((S.user.added || []).map(a => a.id));
-      S.user.added = (S.user.added || []).map(a => (o.added || []).find(b => b.id === a.id) || a).concat((o.added || []).filter(b => !ids.has(b.id)));
-      S.user.edits = {...(S.user.edits || {}), ...(o.edits || {})}; S.user.hidden = [...new Set([...(S.user.hidden || []), ...(o.hidden || [])])];
-      S.user.ts = Date.now(); saveUser(); rebuild(); toast('Imported'); renderSettings();
+      mergeUser(JSON.parse(b64d(raw))); toast('Imported'); renderSettings();
     } catch { toast('That code didn’t work – copy the whole thing.'); }
   });
+  const nf = Object.values(S.fidx).reduce((a, l) => a + l.length, 0), sz = Object.values(S.fidx).flat().reduce((a, f) => a + f.size, 0);
+  $('#bkinfo').textContent = nf ? `${nf} file${nf === 1 ? '' : 's'} stored on this phone (${fmtSize(sz)}).` : 'No files stored on this phone yet.';
+  $('#bkshare').addEventListener('click', async () => {
+    try { const f = await backupFile();
+      if (navigator.canShare && navigator.canShare({files: [f]})) await navigator.share({files: [f], title: 'Trip backup'});
+      else { const u = URL.createObjectURL(f), a = document.createElement('a'); a.href = u; a.download = f.name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 5000); }
+    } catch {} });
+  $('#bkfile').addEventListener('change', async e => { const f = e.target.files[0]; if (!f) return;
+    try { const n = await importBackup(f); toast(`Imported${n ? ` – ${n} file${n === 1 ? '' : 's'} added` : ''}`); renderSettings(); } catch { toast('That isn’t a trip backup file'); } });
   $('#lock').addEventListener('click', () => { if (!confirm('Remove the trip and your changes from this phone? Share your changes first if you want to keep them.')) return;
-    ['base', 'pass', 'user', 'cache', 'encv'].forEach(LS.del); S.base = null; S.user = {added: [], edits: {}, hidden: []}; location.hash = ''; renderLock(); });
+    ['base', 'pass', 'user', 'cache', 'encv', 'fidx'].forEach(LS.del); try { indexedDB.deleteDatabase('trip-docs'); } catch {} S.fidx = {}; S.base = null; S.user = {added: [], edits: {}, hidden: [], links: {}}; location.hash = ''; renderLock(); });
 }
 
 /* ---------- sync ---------- */
@@ -716,6 +886,7 @@ function route() {
   if ((m = h.match(/^add(?:-(\d{4}-\d{2}-\d{2}))?$/))) return renderForm(null, m[1]);
   if ((m = h.match(/^edit-(.+)$/))) return renderForm(m[1]);
   if (h === 'settings') return renderSettings();
+  if (h === 'docs') return renderDocs();
   renderHome();
 }
 window.addEventListener('hashchange', route);
